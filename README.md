@@ -12,6 +12,29 @@ Reference SDK for receiving published articles from the [OutscoreAgent](https://
 - ❌ You're on **WordPress** — install the [OutscoreAgent WordPress plugin](https://outscoreagent.com/downloads/outscoreagent.zip) instead.
 - ❌ You want to *trigger* article generation from your code — that's a future *client* SDK; this is a *receiver* SDK only (the platform calls into your code).
 
+## How it works
+
+OutscoreAgent generates articles on its platform, then **pushes** each one to your backend over HTTP. The SDK is the receiver — there is no polling and no job queue.
+
+```
+                    POST /articles  (platform → you)
+   ┌──────────────┐ ─────────────────────────────► ┌──────────────┐
+   │ OutscoreAgent│                                │  Your Node   │
+   │   platform   │ ◄───────────────────────────── │   backend    │
+   └──────────────┘  200 { external_post_id, url } └──────────────┘
+          ▲                                                │
+          │            sendOutscoreWebhook(...)            │
+          └────────────────────────────────────────────────┘
+                    (optional, on your-side edits)
+```
+
+1. **Platform → SDK.** When an article is ready, the platform calls `POST /articles` (or `PUT /articles/:id` on edits) on your mounted endpoint, authenticated with the bearer token.
+2. **SDK → your store.** The SDK validates the token, rate-limits, and dispatches to your `store.createPost` / `store.updatePost` callback. You persist the article however you want (Postgres, Sanity, MDX on disk, …) and return your internal post id + canonical URL.
+3. **SDK → platform.** The SDK shapes your callback's return value into the HTTP response, so the dashboard knows where the article landed.
+4. **Your backend → platform (optional).** When *you* edit, unpublish, or delete the article on your side, call `sendOutscoreWebhook(...)` to keep the dashboard in sync. This is the only outbound call the SDK ever makes.
+
+All transport is synchronous request/response — no jobs, no polling, no background workers required on your side.
+
 ## Compatibility
 
 | | |
